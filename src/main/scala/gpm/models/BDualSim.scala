@@ -52,7 +52,7 @@ object BDualSim {
         sc.stop()
     }
 
-    def apply(sc: SparkContext, graph: Graph[Int, Boolean], pattern: Graph[Int, Int])
+    def apply(sc: SparkContext, graph: Graph[Int, Int], pattern: Graph[Int, Int])
              (shortestCycles: mutable.Set[Cycle], k: Byte) = {
 
         val cycles = shortestCycles.zipWithIndex.map { case (cycle, id) => (cycle, {
@@ -81,11 +81,11 @@ object BDualSim {
       * the dual match graph contains node id, match flag and match set,
       * parents match sets and children match sets* */
 
-    def evaluate(dualMatchGraph: Graph[Data1, Boolean],
+    def evaluate(dualMatchGraph: Graph[Data1, Int],
                  cycles: Broadcast[Set[(Cycle, Map[Byte, (VertexId, Byte)], Byte)]],
                  dActiveVertices: mutable.Map[Byte, Long],
                  k: Byte,
-                 accumulator: LongAccumulator): (Graph[Data[Set[(VertexId, VertexId)]], Boolean], mutable.Map[Byte, VertexId]) = {
+                 accumulator: LongAccumulator): (Graph[Data[Set[(VertexId, VertexId)]], Int], mutable.Map[Byte, VertexId]) = {
         /**
           * now as a data node, I have a list of cycles where I belong,
           * I need to check the length of every cycle and remove myself from those exceeding a certain limit
@@ -93,7 +93,7 @@ object BDualSim {
           */
         val pregelAPI = new OptimizedPregel(dActiveVertices)
 
-        val answer: Graph[Data[Set[(VertexId, VertexId)]], Boolean] = if (cycles.value.nonEmpty) {
+        val answer: Graph[Data[Set[(VertexId, VertexId)]], Int] = if (cycles.value.nonEmpty) {
             val initMessage1 = Array(Message.init[Token])
             val initMessage2 = Array(Message.init[Set[(VertexId, VertexId)]])
 
@@ -102,12 +102,12 @@ object BDualSim {
 
             /** Third step, we execute token passing * */
             val maxIterations = (k * cycles.value.map(_._1.edges.size).max).toByte
-            val b = pregelAPI.apply(a, initMessage1, maxIterations)(vertexProg(k, accumulator), sendMessage, mergeMsgs)
+            val b = pregelAPI.apply(a, initMessage1, maxIterations)(vertexProgTokenPassing(k, accumulator), sendTokenMessage, mergeMsgs)
               .mapVertices((_, vData) => (vData._1, vData._2, vData._3, vData._4, vData._5, Array.empty[Message[Set[(VertexId, VertexId)]]]))
 
 
             /** Final step, we remove non valid matches resulting from token passing * */
-            val c = pregelAPI.apply(b, initMessage2, maxIterations = 100)(vertexFilteringProg(accumulator), sendRemovalMessage, mergeMsgs)
+            val c = pregelAPI.apply(b, initMessage2, maxIterations = 100)(vertexProgFiltering(accumulator), sendRemovalMessage, mergeMsgs)
             val filteredG = c.subgraph(vpred = (_, v) => v._1)
 
             filteredG
@@ -149,9 +149,9 @@ object BDualSim {
         myLocalCycles
     }
 
-    def vertexProg(k: Byte,
-                   accumulator: LongAccumulator)
-                  (steps: Byte,
+    def vertexProgTokenPassing(k: Byte,
+                               accumulator: LongAccumulator)
+                              (steps: Byte,
                    pregelAcc: LongAccumulator)(
                     id: VertexId,
                     vData: Data[Token],
@@ -243,7 +243,7 @@ object BDualSim {
         (vData._1, vData._2, vData._3, vData._4, myLocalCycles, dataToSend)
     }
 
-    def vertexFilteringProg(accumulator: LongAccumulator)
+    def vertexProgFiltering(accumulator: LongAccumulator)
                            (steps: Byte,
                             pregelAcc: LongAccumulator)(
                              id: VertexId,
@@ -320,7 +320,7 @@ object BDualSim {
             (vData._1, vData._2, vData._3, vData._4, vData._5, Array.empty[Message[Set[(VertexId, VertexId)]]])
     }
 
-    def sendMessage(steps: Byte)(triplet: EdgeContext[Data[Token], Boolean, Array[Message[Token]]]): Unit = {
+    def sendTokenMessage(steps: Byte)(triplet: EdgeContext[Data[Token], Int, Array[Message[Token]]]): Unit = {
         val srcMsgs = triplet.srcAttr._6.filter(m => m.dst == triplet.dstId)
         val dstMsgs = triplet.dstAttr._6.filter(m => m.dst == triplet.srcId) // null pointer exception
 
@@ -330,7 +330,7 @@ object BDualSim {
             triplet.sendToSrc(dstMsgs)
     }
 
-    def sendRemovalMessage(steps: Byte)(triplet: EdgeContext[Data[Set[(VertexId, VertexId)]], Boolean, Array[Message[Set[(VertexId, VertexId)]]]]): Unit = {
+    def sendRemovalMessage(steps: Byte)(triplet: EdgeContext[Data[Set[(VertexId, VertexId)]], Int, Array[Message[Set[(VertexId, VertexId)]]]]): Unit = {
         val srcMsgs = triplet.srcAttr._6
         val dstMsgs = triplet.dstAttr._6
 

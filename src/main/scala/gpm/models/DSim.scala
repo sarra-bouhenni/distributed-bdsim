@@ -28,7 +28,7 @@ object DSim {
         sc.stop()
     }
 
-    def apply(sc: SparkContext, graph: Graph[Int, Boolean], pattern: Graph[Int, Int]) = {
+    def apply(sc: SparkContext, graph: Graph[Int, Int], pattern: Graph[Int, Int]) = {
         val vertices = pattern.vertices.collect
         val labels = sc.broadcast(vertices)
         val parentConstraints = sc.broadcast(pattern.collectNeighborIds(EdgeDirection.In).collectAsMap())
@@ -41,7 +41,7 @@ object DSim {
         (dsim, msgs, steps, activeVertices)
     }
 
-    def vertexProgOne(accumulator: LongAccumulator)(steps: Byte, pregelAcc: LongAccumulator)(id: VertexId, vData: Data[Map[VertexId, Set[VertexId]]], receivedData: Array[Message[Map[VertexId, Set[VertexId]]]]): Data[Map[VertexId, Set[VertexId]]] = {
+    def vertexProg(accumulator: LongAccumulator)(steps: Byte, pregelAcc: LongAccumulator)(id: VertexId, vData: Data[Map[VertexId, Set[VertexId]]], receivedData: Array[Message[Map[VertexId, Set[VertexId]]]]): Data[Map[VertexId, Set[VertexId]]] = {
         //evaluate matchSet and matchFlag
         // as a vertex, I have a partial matchset
         // I should compare it with my matched vertex query neighbors candidates
@@ -92,8 +92,8 @@ object DSim {
         (vData._1, constraints, pmatchSet, cmatchSet, dataToSend)
     }
 
-    def sendMessageOne(steps: Byte)(triplet: EdgeContext[Data[Map[VertexId, Set[VertexId]]], Boolean, Array[Message[Map[VertexId, Set[VertexId]]]]]): Unit = {
-        // if my messageType = REQUEST_MESSAGE, i send my requests to children and parents
+    def sendDataMessage(steps: Byte)(triplet: EdgeContext[Data[Map[VertexId, Set[VertexId]]], Int, Array[Message[Map[VertexId, Set[VertexId]]]]]): Unit = {
+        // if my messageType = DATA_MESSAGE, i send my match set to children and parents
         val srcData = triplet.srcAttr._5
         val dstData = triplet.dstAttr._5
 
@@ -108,7 +108,7 @@ object DSim {
         }
     }
 
-    def vertexProgTwo(accumulator: LongAccumulator)(steps: Byte, pregelAcc: LongAccumulator)(id: VertexId, vData: Data[Set[(VertexId, VertexId)]], receivedData: Array[Message[Set[(VertexId, VertexId)]]]): Data[Set[(VertexId, VertexId)]] = {
+    def vertexProgFiltering(accumulator: LongAccumulator)(steps: Byte, pregelAcc: LongAccumulator)(id: VertexId, vData: Data[Set[(VertexId, VertexId)]], receivedData: Array[Message[Set[(VertexId, VertexId)]]]): Data[Set[(VertexId, VertexId)]] = {
         //evaluate matchSet and matchFlag
         // as a vertex, I have a partial matchset
         // I should compare it with my matched vertex query neighbors candidates
@@ -179,7 +179,7 @@ object DSim {
             (vData._1, vData._2, vData._3, vData._4, message)
     }
 
-    def sendMessageTwo(steps: Byte)(triplet: EdgeContext[Data[Set[(VertexId, VertexId)]], Boolean, Array[Message[Set[(VertexId, VertexId)]]]]): Unit = {
+    def sendRemovalMessage(steps: Byte)(triplet: EdgeContext[Data[Set[(VertexId, VertexId)]], Int, Array[Message[Set[(VertexId, VertexId)]]]]): Unit = {
         val srcMsg = triplet.srcAttr._5
         val dstMsg = triplet.dstAttr._5
 
@@ -198,10 +198,10 @@ object DSim {
     def mergeMsgs[T](a: Array[Message[T]], b: Array[Message[T]]): Array[Message[T]] = (a ++ b).distinct
 
 
-    def evaluate(graph: Graph[Int, Boolean], vertices: Broadcast[Array[(VertexId, Int)]],
+    def evaluate(graph: Graph[Int, Int], vertices: Broadcast[Array[(VertexId, Int)]],
                  parentConstraints: Broadcast[scala.collection.Map[VertexId, Array[VertexId]]],
                  childConstraints: Broadcast[scala.collection.Map[VertexId, Array[VertexId]]],
-                 accumulator: LongAccumulator): (Graph[Data[Set[(VertexId, VertexId)]], Boolean], mutable.Map[Byte, VertexId]) = {
+                 accumulator: LongAccumulator): (Graph[Data[Set[(VertexId, VertexId)]], Int], mutable.Map[Byte, VertexId]) = {
 
         val requestMessage = Array(Message.request[Map[VertexId, Set[VertexId]]])
         val initMessage = Array(Message.init[Set[(VertexId, VertexId)]])
@@ -220,10 +220,10 @@ object DSim {
 
         val pregelAPI: OptimizedPregel = new OptimizedPregel(mutable.Map.empty[Byte, VertexId])
 
-        val b = pregelAPI.apply(a, requestMessage, 5)(vertexProgOne(accumulator), sendMessageOne, mergeMsgs)
+        val b = pregelAPI.apply(a, requestMessage, 5)(vertexProg(accumulator), sendDataMessage, mergeMsgs)
           .mapVertices((_, vData) => (vData._1, vData._2, vData._3, vData._4, Message.empty[Set[(VertexId, VertexId)]]))
 
-        val c = pregelAPI.apply(b, initMessage, 100)(vertexProgTwo(accumulator), sendMessageTwo, mergeMsgs)
+        val c = pregelAPI.apply(b, initMessage, 100)(vertexProgFiltering(accumulator), sendRemovalMessage, mergeMsgs)
 
         val d = c.subgraph(vpred = (_, v) => v._1, epred = t => t.srcAttr._4.contains(t.dstId) || t.dstAttr._3.contains(t.srcId))
 
