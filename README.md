@@ -10,7 +10,7 @@ We prove their effectiveness and efficiency through detailed theoretical validat
 
 ## Implementation
 This repository provides a distributed implementation (in Scala) of our approach over the distributed graph processing framework GraphX. 
-The entrypoint is the class gmp.models.BDualSim where an example is given on how to call the GPM algorithm on a graph and a pattern of the type Graph[Int, Int]. You can get the performance measures: running time, number of super-steps, number of messages, and the number of active vertices by super-step. 
+The entrypoint is the class ```gmp.models.BDualSim``` where an example is given on how to call the GPM algorithm on a graph and a pattern of the type Graph[Int, Int]. You can get the performance measures: running time, number of super-steps, number of messages, and the number of active vertices by super-step. 
 
 ```scala
         /** launching Spark*/
